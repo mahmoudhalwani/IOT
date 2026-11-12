@@ -262,3 +262,50 @@ def test_log_can_be_read_but_not_edited_or_deleted(web):
         assert r.status_code == 405
     assert web.client.delete(f"/api/events/{events[0]['id']}", headers=headers(s)).status_code == 404
     assert len(web.client.get("/api/events").json()) == len(events)
+
+
+# ---- photos and clips ------------------------------------------------------
+def test_photo_and_clip_are_served_only_to_signed_in_residents(cfg, store, engine, live):
+    import cv2
+    from doorbell.media import MediaStore, to_jpeg, unpack_clip
+    media = MediaStore(cfg, store.vault)
+    photo, clip = media.new_id(), media.new_id()
+    frame = cv2.imread(str(LIVE))
+    media.save_photo(photo, frame)
+    media.save_clip(clip, [to_jpeg(frame, 70)] * 3)
+    eid = store.add_event("face", "denied_unknown", photo=photo, clip=clip)
+    plain = store.add_event("face", "granted", "Sara", clip_reason="none")
+    accounts = Accounts(store, cfg)
+    accounts.add_user("alaa", PASSWORD)
+    door = Door(SimLock(lambda m: None), 5)
+    client = TestClient(create_app(cfg, store, accounts, door, lambda: engine, media=media), base_url=ORIGIN)
+
+    for kind in ("photo", "clip"):
+        assert client.get(f"/api/events/{eid}/{kind}").status_code == 401
+    assert client.post("/api/login", json={"username": "alaa", "password": PASSWORD}).status_code == 200
+
+    r = client.get(f"/api/events/{eid}/photo")
+    assert r.status_code == 200 and r.headers["content-type"] == "image/jpeg" and r.content[:2] == b"\xff\xd8"
+    assert r.headers["cache-control"] == "no-store" and r.headers["x-content-type-options"] == "nosniff"
+    r = client.get(f"/api/events/{eid}/clip")
+    assert r.status_code == 200 and len(unpack_clip(r.content)[1]) == 3
+
+    listed = {e["id"]: e for e in client.get("/api/events").json()}
+    assert listed[eid]["has_photo"] and listed[eid]["has_clip"] and not listed[plain]["has_photo"]
+    assert "photo" not in listed[eid] and photo not in client.get("/api/events").text   # file ids stay private
+    assert client.get(f"/api/events/{plain}/photo").status_code == 404
+    assert client.get("/api/events/9999/clip").status_code == 404
+    assert client.get(f"/api/events/{eid}/other").status_code == 404
+    media.purge(time.time() + 8 * 86400)
+    assert client.get(f"/api/events/{eid}/clip").json() == {"error": "Clip unavailable."}
+    door.close()
+
+
+def test_script_and_style_are_served_with_types_the_browser_will_accept(web, monkeypatch):
+    import mimetypes
+    mimetypes.add_type("text/plain", ".js")               # what a Windows registry can say
+    import importlib, doorbell.web.app as app_module
+    importlib.reload(app_module)                           # the app must override it on import
+    assert "javascript" in web.client.get("/static/app.js").headers["content-type"]
+    assert web.client.get("/static/app.css").headers["content-type"].startswith("text/css")
+    assert web.client.get("/").headers["content-type"].startswith("text/html")

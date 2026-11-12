@@ -83,3 +83,19 @@ nav button.active { color: var(--accent); }
 dialog { border: 1px solid var(--line); border-radius: 14px; background: var(--card); color: var(--text);
          width: min(520px, calc(100vw - 32px)); padding: 18px; }
 dialog::backdrop { background: rgba(0, 0, 0, .5); }
+
+.filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.filters .active { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+.event .media { grid-column: 2; display: flex; gap: 8px; margin-top: 6px; }
+#media-img { display: block; width: 100%; border-radius: 10px; background: #000; min-height: 120px; }
+
+/* On a computer screen the tabs sit at the top, where they are easy to find. */
+@media (min-width: 700px) {
+  #app { display: flex; flex-direction: column; }
+  header { order: 0; width: 100%; }
+  nav { order: 1; position: static; width: 100%; max-width: 560px; margin: 12px auto 0; padding: 0 16px;
+        background: transparent; border-top: 0; gap: 8px; }
+  nav button { border: 1px solid var(--line); border-radius: 10px; padding: 10px 0; background: var(--card); }
+  nav button.active { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  #app main { order: 2; width: 100%; padding-bottom: 32px; }
+}

@@ -49,7 +49,8 @@ CREATE TABLE IF NOT EXISTS events (
     person      TEXT NOT NULL,      -- name at the time of the event, or "unknown"
     detail      TEXT NOT NULL DEFAULT '',
     clip        TEXT,               -- video reference, if one was recorded
-    clip_reason TEXT                -- why there is no clip
+    clip_reason TEXT,               -- why there is no clip
+    photo       TEXT                -- still picture reference, if one was taken
 );
 """
 
@@ -64,6 +65,7 @@ class Event:
     detail: str
     clip: Optional[str]
     clip_reason: Optional[str]
+    photo: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -102,6 +104,8 @@ class Store:
         self._db.execute("PRAGMA secure_delete = ON")
         self._db.execute("PRAGMA journal_mode = WAL")
         self._db.executescript(SCHEMA)
+        if "photo" not in [r["name"] for r in self._db.execute("PRAGMA table_info(events)")]:
+            self._db.execute("ALTER TABLE events ADD COLUMN photo TEXT")    # database from an older version
         self.db = self._db
         self._vault = vault
 
@@ -181,12 +185,13 @@ class Store:
     # ---- access log (MH-06): entries can be added and read, never edited ---
     @_locked
     def add_event(self, method: str, result: str, person: str = "unknown", detail: str = "",
-                  clip: Optional[str] = None, clip_reason: Optional[str] = None) -> int:
+                  clip: Optional[str] = None, clip_reason: Optional[str] = None,
+                  photo: Optional[str] = None) -> int:
         with self._db:
             cur = self._db.execute(
-                "INSERT INTO events (at, method, result, person, detail, clip, clip_reason) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (_iso(datetime.now()), method, result, person, detail, clip, clip_reason))
+                "INSERT INTO events (at, method, result, person, detail, clip, clip_reason, photo) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (_iso(datetime.now()), method, result, person, detail, clip, clip_reason, photo))
             self._db.execute("DELETE FROM events WHERE id <= ?", (cur.lastrowid - self._log_keep,))
         return cur.lastrowid
 
@@ -195,6 +200,11 @@ class Store:
         """Newest first."""
         rows = self._db.execute("SELECT * FROM events ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
         return [Event(*r) for r in rows]
+
+    @_locked
+    def event(self, event_id: int) -> Optional[Event]:
+        r = self._db.execute("SELECT * FROM events WHERE id = ?", (event_id,)).fetchone()
+        return Event(*r) if r else None
 
     # ---- internals --------------------------------------------------------
     @staticmethod

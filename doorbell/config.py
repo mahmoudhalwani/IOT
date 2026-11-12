@@ -45,6 +45,14 @@ class Config:
     camera_retry_seconds: float = 3.0
     log_keep: int = 500             # newest entries kept in the access log
 
+    # Photos and clips of visits
+    clip_seconds: float = 5.0       # length of the clip kept for a refused visitor
+    clip_fps: int = 15
+    clip_jpeg_quality: int = 70
+    photo_jpeg_quality: int = 85
+    media_keep_days: float = 7.0    # photos and clips are deleted after this
+    media_max_mb: float = 500.0     # oldest are deleted first if the folder grows past this
+
     # Hardware ("auto" = real pins on a Raspberry Pi, simulated anywhere else)
     hardware: str = "auto"          # "auto", "pi" or "sim"
     servo_pin: int = 18             # GPIO18 = physical pin 12

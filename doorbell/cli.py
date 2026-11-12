@@ -32,6 +32,7 @@ from .decision import Outcome, Visit
 from .door import Door
 from .enroll import EnrollError, add_face
 from .face import FaceEngine, Gallery
+from .media import MediaStore
 from . import hardware
 from .controller import Controller
 from .store import Store
@@ -271,7 +272,9 @@ def cmd_run(a, cfg):
     store, engine, gallery = open_store(cfg), FaceEngine(cfg), Gallery(cfg)
     lock, motion = hardware.build(cfg, say)
     door = Door(lock, cfg.relock_seconds)
-    controller = Controller(cfg, engine, gallery, store, door, hardware.Camera(cfg), motion, say=say)
+    media = MediaStore(cfg, store.vault)
+    controller = Controller(cfg, engine, gallery, store, door, hardware.Camera(cfg), motion,
+                            media=media, say=say)
     say("starting; Ctrl+C to stop")
     try:
         if a.no_web:
@@ -286,7 +289,7 @@ def cmd_run(a, cfg):
         accounts = Accounts(store, cfg)
         if not accounts.users():
             say('no website user yet: create one with  python -m doorbell user add <name>')
-        app = create_app(cfg, store, accounts, door, lambda: FaceEngine(cfg))
+        app = create_app(cfg, store, accounts, door, lambda: FaceEngine(cfg), media=media)
         server = uvicorn.Server(uvicorn.Config(
             app, host=cfg.web_host, port=cfg.web_port, log_level="warning",
             server_header=False, proxy_headers=False))
