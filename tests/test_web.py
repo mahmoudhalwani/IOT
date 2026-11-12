@@ -299,3 +299,13 @@ def test_photo_and_clip_are_served_only_to_signed_in_residents(cfg, store, engin
     media.purge(time.time() + 8 * 86400)
     assert client.get(f"/api/events/{eid}/clip").json() == {"error": "Clip unavailable."}
     door.close()
+
+
+def test_script_and_style_are_served_with_types_the_browser_will_accept(web, monkeypatch):
+    import mimetypes
+    mimetypes.add_type("text/plain", ".js")               # what a Windows registry can say
+    import importlib, doorbell.web.app as app_module
+    importlib.reload(app_module)                           # the app must override it on import
+    assert "javascript" in web.client.get("/static/app.js").headers["content-type"]
+    assert web.client.get("/static/app.css").headers["content-type"].startswith("text/css")
+    assert web.client.get("/").headers["content-type"].startswith("text/html")

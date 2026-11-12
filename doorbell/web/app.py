@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hmac
 import json
+import mimetypes
 import threading
 import time
 from datetime import datetime, time as dtime
@@ -37,6 +38,11 @@ from ..face import Gallery
 from ..media import MediaStore
 from ..store import Person, Store
 from .accounts import Accounts, AuthError, Session
+
+# Windows can report .js as "text/plain" (it reads the type from the registry). Browsers
+# then refuse to run the script because of the nosniff header, leaving a blank page.
+mimetypes.add_type("text/javascript", ".js")
+mimetypes.add_type("text/css", ".css")
 
 STATIC = Path(__file__).parent / "static"
 MAX_JSON = 16 * 1024
