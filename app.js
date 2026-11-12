@@ -280,25 +280,117 @@ const RESULT_TEXT = {
   person_changed: ["Person changed", ""],
 };
 
-async function loadLog() {
+const FILTERS = {
+  all: () => true,
+  visits: (e) => e.method === "face",
+  alerts: (e) => ["denied_unknown", "denied_spoof", "denied_not_allowed", "rejected", "fault"].includes(e.result),
+};
+let logFilter = "all";
+let logEvents = [];
+
+function renderLog() {
   const list = $("log-list");
+  const events = logEvents.filter(FILTERS[logFilter]);
+  if (!events.length) { list.replaceChildren(el("p", "muted event", "Nothing to show.")); return; }
+  list.replaceChildren(...events.map((e) => {
+    const row = el("div", "event");
+    const [text, tone] = RESULT_TEXT[e.result] || [e.result, ""];
+    const when = el("time", "", e.at.replace("T", " ").slice(0, 16));
+    when.title = e.at;
+    row.append(when, el("span", `what ${tone}`.trim(), `${text} · ${e.person}`),
+               el("span", "detail", [e.method, e.detail].filter(Boolean).join(" · ")));
+    if (e.has_photo || e.has_clip) {
+      const media = el("div", "media");
+      const title = `${text} · ${e.person}`;
+      for (const [kind, label] of [["photo", "Photo"], ["clip", "Play clip"]]) {
+        if (!e[`has_${kind}`]) continue;
+        const button = el("button", "mini", label);
+        button.type = "button";
+        button.addEventListener("click", () => showMedia(e, kind, title));
+        media.append(button);
+      }
+      row.append(media);
+    }
+    return row;
+  }));
+}
+
+async function loadLog() {
   try {
-    const events = await api("/api/events?limit=200");
-    if (!events.length) { list.replaceChildren(el("p", "muted event", "Nothing has happened yet.")); return; }
-    list.replaceChildren(...events.map((e) => {
-      const row = el("div", "event");
-      const [text, tone] = RESULT_TEXT[e.result] || [e.result, ""];
-      const when = el("time", "", e.at.replace("T", " ").slice(5, 16));
-      when.title = e.at;
-      row.append(when, el("span", `what ${tone}`.trim(), `${text} · ${e.person}`),
-                 el("span", "detail", [e.method, e.detail].filter(Boolean).join(" · ")));
-      return row;
-    }));
+    logEvents = await api("/api/events?limit=200");
+    renderLog();
   } catch (err) {
-    list.replaceChildren(el("p", "error event", err.message));
+    $("log-list").replaceChildren(el("p", "error event", err.message));
   }
 }
 $("log-refresh").addEventListener("click", loadLog);
+for (const button of document.querySelectorAll(".filters button")) {
+  button.addEventListener("click", () => {
+    logFilter = button.dataset.filter;
+    for (const other of document.querySelectorAll(".filters button")) other.classList.toggle("active", other === button);
+    renderLog();
+  });
+}
+
+// ---- photos and clips -------------------------------------------------------
+// Pictures are fetched with the signed-in session, shown from memory, and
+// released when the viewer closes. They are never written to the phone's cache.
+let mediaUrls = [];
+let mediaTimer = null;
+
+function stopMedia() {
+  clearInterval(mediaTimer);
+  mediaTimer = null;
+  mediaUrls.forEach((url) => URL.revokeObjectURL(url));
+  mediaUrls = [];
+  $("media-img").removeAttribute("src");
+}
+
+function clipFrames(buffer) {
+  const view = new DataView(buffer);
+  const magic = String.fromCharCode(...new Uint8Array(buffer, 0, 4));
+  if (magic !== "DBCL") throw new Error("Clip unavailable.");
+  const fps = view.getUint8(4) || 15;
+  const frames = [];
+  for (let pos = 5; pos + 4 <= buffer.byteLength;) {
+    const length = view.getUint32(pos);
+    frames.push(new Blob([buffer.slice(pos + 4, pos + 4 + length)], { type: "image/jpeg" }));
+    pos += 4 + length;
+  }
+  return { fps, frames };
+}
+
+async function showMedia(event, kind, title) {
+  stopMedia();
+  $("media-title").textContent = title;
+  $("media-when").textContent = event.at.replace("T", " ");
+  $("media-error").textContent = "Loading…";
+  $("media-dialog").showModal();
+  try {
+    const response = await fetch(`/api/events/${event.id}/${kind}`, { credentials: "same-origin" });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.error || "Unavailable. It may have been deleted after 7 days.");
+    }
+    const image = $("media-img");
+    if (kind === "photo") {
+      mediaUrls = [URL.createObjectURL(await response.blob())];
+      image.src = mediaUrls[0];
+    } else {
+      const { fps, frames } = clipFrames(await response.arrayBuffer());
+      if (!frames.length) throw new Error("Clip unavailable.");
+      mediaUrls = frames.map((frame) => URL.createObjectURL(frame));
+      let index = 0;
+      image.src = mediaUrls[0];
+      mediaTimer = setInterval(() => { index = (index + 1) % mediaUrls.length; image.src = mediaUrls[index]; }, 1000 / fps);
+    }
+    $("media-error").textContent = "";
+  } catch (err) {
+    $("media-error").textContent = err.message;
+  }
+}
+$("media-close").addEventListener("click", () => $("media-dialog").close());
+$("media-dialog").addEventListener("close", stopMedia);
 
 // ---- tabs and start-up --------------------------------------------------------
 function selectTab(name) {
