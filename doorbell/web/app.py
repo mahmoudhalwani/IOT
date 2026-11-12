@@ -34,6 +34,7 @@ from ..config import Config
 from ..door import Door
 from ..enroll import EnrollError, add_face
 from ..face import Gallery
+from ..media import MediaStore
 from ..store import Person, Store
 from .accounts import Accounts, AuthError, Session
 
@@ -90,7 +91,8 @@ def rule_from(data: dict) -> AccessRule:
 
 
 def create_app(cfg: Config, store: Store, accounts: Accounts, door: Door,
-               engine_factory: Callable, clock=time.time) -> Starlette:
+               engine_factory: Callable, clock=time.time,
+               media: Optional[MediaStore] = None) -> Starlette:
     cookie = "session" if cfg.web_dev else "__Host-session"
     enrol_lock = threading.Lock()
     state = {"engine": None, "logins": []}
@@ -313,7 +315,25 @@ def create_app(cfg: Config, store: Store, accounts: Accounts, door: Door,
             limit = max(1, min(int(request.query_params.get("limit", 100)), cfg.log_keep))
         except ValueError:
             raise ApiError(400, "limit must be a number.")
-        return JSONResponse([e.__dict__ for e in store.events(limit)])
+        return JSONResponse([
+            {"id": e.id, "at": e.at, "method": e.method, "result": e.result, "person": e.person,
+             "detail": e.detail, "has_photo": bool(e.photo), "has_clip": bool(e.clip),
+             "clip_reason": e.clip_reason} for e in store.events(limit)])
+
+    async def event_media(request: Request):
+        """Decrypts one photo or clip for a signed-in resident. Nothing is cached."""
+        session_of(request)
+        kind = request.path_params["kind"]
+        if kind not in ("photo", "clip"):
+            raise ApiError(404, "Not found.")
+        e = store.event(request.path_params["id"])
+        ref = None if e is None else (e.photo if kind == "photo" else e.clip)
+        data = None
+        if ref and media is not None:
+            data = await run_in_threadpool(media.photo if kind == "photo" else media.clip, ref)
+        if data is None:
+            raise ApiError(404, "Clip unavailable." if kind == "clip" else "Photo unavailable.")
+        return Response(data, media_type="image/jpeg" if kind == "photo" else "application/octet-stream")
 
     # ---- pages ------------------------------------------------------------
     async def index(request: Request):
@@ -339,6 +359,7 @@ def create_app(cfg: Config, store: Store, accounts: Accounts, door: Door,
         Route("/api/people/{id:int}", people_remove, methods=["DELETE"]),
         Route("/api/people/{id:int}/photos", people_photos, methods=["POST"]),
         Route("/api/events", events),
+        Route("/api/events/{id:int}/{kind:str}", event_media),
         Mount("/static", StaticFiles(directory=STATIC)),
     ]
     app = Starlette(routes=routes, exception_handlers={ApiError: api_error, Exception: unexpected})

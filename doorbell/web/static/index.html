@@ -62,6 +62,11 @@
 
     <section id="tab-log" hidden>
       <div class="row between"><h2>Access log</h2><button id="log-refresh" type="button">Refresh</button></div>
+      <div class="filters" role="group" aria-label="Show">
+        <button type="button" class="mini active" data-filter="all">Everything</button>
+        <button type="button" class="mini" data-filter="visits">Door visits</button>
+        <button type="button" class="mini" data-filter="alerts">Strangers and attacks</button>
+      </div>
       <div id="log-list" class="card flush"></div>
     </section>
   </main>
@@ -83,6 +88,14 @@
       <button type="button" id="access-cancel">Cancel</button>
     </div>
   </form>
+</dialog>
+
+<dialog id="media-dialog">
+  <h2 id="media-title">Visit</h2>
+  <p id="media-when" class="muted small"></p>
+  <img id="media-img" alt="Picture from the door camera">
+  <p class="error" id="media-error" role="alert"></p>
+  <div class="row"><button type="button" id="media-close">Close</button></div>
 </dialog>
 
 <template id="access-fields">

@@ -16,20 +16,26 @@ from typing import Optional
 from .config import Config
 from .decision import Decision, Outcome, Visit
 from .face import FaceEngine, Gallery
+from .media import ClipRecorder, MediaStore
 from .store import Store
 
 RESULT = {Outcome.GRANTED: "granted", Outcome.UNKNOWN: "denied_unknown",
           Outcome.SPOOF: "denied_spoof", Outcome.NOT_ALLOWED: "denied_not_allowed"}
-NO_CLIP = "clip recording not enabled yet"
+NO_MEDIA = "recording is switched off"
 
 
 class Controller:
     def __init__(self, cfg: Config, engine: FaceEngine, gallery: Gallery, store: Store,
-                 lock, camera, motion=None, *, sleep=time.sleep, clock=time.monotonic, say=print):
+                 lock, camera, motion=None, *, media: Optional[MediaStore] = None,
+                 sleep=time.sleep, clock=time.monotonic, say=print):
         self.cfg, self.engine, self.gallery, self.store = cfg, engine, gallery, store
         self.lock, self.camera, self.motion = lock, camera, motion
         self._sleep, self._clock, self._say = sleep, clock, say
+        self.media = media
         self._camera_ok = True
+        self._frame = None                       # the frame the last decision was made on
+        self._recorder: Optional[ClipRecorder] = None
+        self._next_purge = 0.0
         self.stop = threading.Event()            # set from another thread to end run()
 
     # ---- top level --------------------------------------------------------
@@ -47,6 +53,11 @@ class Controller:
 
     def cycle(self) -> Optional[Decision]:
         """Wait briefly for a trigger; if there is one, handle the whole visit."""
+        if self.media is not None and self._clock() >= self._next_purge:
+            self._next_purge = self._clock() + 600
+            removed = self.media.purge()
+            if removed:
+                self._say(f"deleted {removed} old photo/clip file(s)")
         if not self._triggered():
             return None
         decision = self._visit()
@@ -86,11 +97,14 @@ class Controller:
         visit = Visit(self.engine, self.gallery, self.store, self.cfg)
         start = last_face = self._clock()
         seen_face = False
+        self._recorder = ClipRecorder(self.cfg, self._clock)
         while True:
             frame = self.camera.read()
             if frame is None:
                 self._camera_fault()
                 return None
+            self._frame = frame
+            self._recorder.add(frame)
             d = visit.update(frame)
             now = self._clock()
             if d.final:
@@ -104,17 +118,47 @@ class Controller:
 
     def _act(self, d: Decision) -> None:
         name = d.name or "unknown"
+        photo, photo_problem = self._save_photo()
         if d.outcome is Outcome.GRANTED:
             self._say(f"GRANTED {name} (similarity {d.similarity:.2f})")
             try:
                 self.lock.unlock()
-                self.store.add_event("face", "granted", name, clip_reason=NO_CLIP)
+                self.store.add_event("face", "granted", name, photo=photo,
+                                     clip_reason=photo_problem or "clips are kept for refused visitors only")
                 self._sleep(self.cfg.relock_seconds)
             finally:
                 self.lock.lock()                 # also runs if the program is stopped mid-wait
-        else:
-            self._say(f"DENIED {RESULT[d.outcome]} {d.name or ''} {d.detail}".rstrip())
-            self.store.add_event("face", RESULT[d.outcome], name, d.detail, clip_reason=NO_CLIP)
+            return
+        self._say(f"DENIED {RESULT[d.outcome]} {d.name or ''} {d.detail}".rstrip())
+        # The log entry is written first (within 2 s of the decision, MH-06) and
+        # names the clip that is about to be finished and saved.
+        clip = MediaStore.new_id() if self.media is not None else None
+        self.store.add_event("face", RESULT[d.outcome], name, d.detail, clip=clip,
+                             clip_reason=None if clip else NO_MEDIA, photo=photo)
+        if clip:
+            self._finish_clip(clip)
+
+    def _save_photo(self):
+        """-> (photo id or None, reason there is none)."""
+        if self.media is None:
+            return None, NO_MEDIA
+        if self._frame is None:
+            return None, "camera failure"
+        photo = MediaStore.new_id()
+        if self.media.save_photo(photo, self._frame):
+            return photo, None
+        return None, "could not be saved"
+
+    def _finish_clip(self, clip: str) -> None:
+        """Keep filming until the clip is long enough, then store it encrypted."""
+        rec = self._recorder
+        while rec is not None and not rec.full:
+            frame = self.camera.read()
+            if frame is None:                    # camera died: keep what we have
+                break
+            rec.add(frame)
+        if rec is None or not self.media.save_clip(clip, rec.frames):
+            self._say("clip unavailable")
 
     def _wait_until_clear(self) -> None:
         """Do not judge the same person again while they are still at the door."""

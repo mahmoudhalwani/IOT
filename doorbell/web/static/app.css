@@ -83,3 +83,8 @@ nav button.active { color: var(--accent); }
 dialog { border: 1px solid var(--line); border-radius: 14px; background: var(--card); color: var(--text);
          width: min(520px, calc(100vw - 32px)); padding: 18px; }
 dialog::backdrop { background: rgba(0, 0, 0, .5); }
+
+.filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.filters .active { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+.event .media { grid-column: 2; display: flex; gap: 8px; margin-top: 6px; }
+#media-img { display: block; width: 100%; border-radius: 10px; background: #000; min-height: 120px; }

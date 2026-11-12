@@ -137,3 +137,92 @@ def test_log_keeps_only_the_newest_entries(store):
         store.add_event("face", "denied_unknown", detail=str(i))
     assert [e.detail for e in store.events()] == ["11", "10", "9", "8", "7"]
     assert not hasattr(store, "delete_event") and not hasattr(store, "update_event")
+
+
+# ---- photos and clips ------------------------------------------------------
+import cv2
+from doorbell.media import MediaStore, unpack_clip
+
+
+@pytest.fixture
+def media_rig(rig, store, cfg):
+    def make(frames, **kw):
+        ctl, lock, clock, said, cam = rig(frames, **kw)
+        ctl.media = MediaStore(cfg, store.vault)
+        return ctl, ctl.media, clock, said, cam
+    return make
+
+
+def is_jpeg(data):
+    return data[:2] == b"\xff\xd8" and cv2.imdecode(np.frombuffer(data, np.uint8), 1) is not None
+
+
+def test_resident_visit_keeps_a_photo_but_no_clip(media_rig, store, live):
+    ctl, media, *_ = media_rig([live] * 8)
+    ctl.cycle()
+    (e,) = store.events()
+    assert e.result == "granted" and e.photo and e.clip is None and e.clip_reason
+    assert is_jpeg(media.photo(e.photo))
+
+
+def test_stranger_and_attack_get_a_photo_and_a_five_second_clip(media_rig, store, cfg, live, spoofs):
+    for frame, result in ((live, "denied_unknown"), (spoofs[1], "denied_spoof")):
+        ctl, media, *_ = media_rig([frame] * 200, enrolled=False)
+        ctl.cycle()
+        e = store.events()[0]
+        assert e.result == result and e.photo and e.clip
+        assert is_jpeg(media.photo(e.photo))
+        fps, frames = unpack_clip(media.clip(e.clip))
+        assert fps == cfg.clip_fps and len(frames) >= cfg.clip_seconds * cfg.clip_fps
+        assert all(is_jpeg(f) for f in frames[:3] + frames[-3:])
+
+
+def test_media_files_are_encrypted_and_private(media_rig, store, live):
+    ctl, media, *_ = media_rig([live] * 200, enrolled=False)
+    ctl.cycle()
+    files = list(media.dir.glob("*.enc"))
+    assert len(files) == 2
+    for f in files:
+        raw = f.read_bytes()
+        assert b"JFIF" not in raw and b"\xff\xd8\xff" not in raw[:16] and b"DBCL" not in raw[:16]
+        assert oct(f.stat().st_mode & 0o777) == "0o600"
+    e = store.events()[0]
+    assert media.clip(e.photo) is None                    # a photo id does not open as a clip
+    files[0].write_bytes(files[0].read_bytes()[:-1] + b"\x00")
+    assert media.photo(e.photo) is None or media.clip(e.clip) is None   # tampering is detected
+
+
+def test_clip_survives_camera_failure_and_log_says_so_when_empty(media_rig, store, live):
+    ctl, media, clock, said, cam = media_rig([live] * 8 + [None], enrolled=False)
+    ctl.cycle()
+    e = store.events()[0]
+    assert e.result == "denied_unknown" and len(unpack_clip(media.clip(e.clip))[1]) >= 1
+
+
+def test_old_media_is_deleted_after_seven_days(media_rig, store, cfg, live):
+    import os, time as real_time
+    ctl, media, *_ = media_rig([live] * 200, enrolled=False)
+    ctl.cycle()
+    e = store.events()[0]
+    old = real_time.time() - 8 * 86400
+    os.utime(media._path(e.clip, "clip"), (old, old))
+    assert media.purge() == 1
+    assert media.clip(e.clip) is None and media.photo(e.photo) is not None
+    assert media.purge(real_time.time() + 8 * 86400) == 1 and media.photo(e.photo) is None
+    with pytest.raises(ValueError):
+        media._path("../../etc/passwd", "photo")
+
+
+def test_database_from_an_older_version_is_upgraded(cfg):
+    import sqlite3
+    from doorbell.crypto import Vault, load_or_create_key
+    from doorbell.store import Store
+    cfg.data_dir.mkdir(parents=True, exist_ok=True)
+    db = sqlite3.connect(cfg.db_path)
+    db.execute("CREATE TABLE events (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, method TEXT NOT NULL, "
+               "result TEXT NOT NULL, person TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '', clip TEXT, clip_reason TEXT)")
+    db.execute("INSERT INTO events (at, method, result, person) VALUES ('2026-11-12T10:00:00', 'face', 'granted', 'Sara')")
+    db.commit(); db.close()
+    store = Store(cfg.db_path, Vault(load_or_create_key(cfg.key_path)))
+    store.add_event("face", "denied_unknown", photo="ab" * 16)
+    assert [e.photo for e in store.events()] == ["ab" * 16, None]

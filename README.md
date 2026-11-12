@@ -1,9 +1,9 @@
 # Smart Doorbell + Lock: door-unit software
 
 Built so far: face pipeline, encrypted people database, access schedules, the
-lock and motion sensor, the main door loop, the access log and the resident
-website. Remote access from outside the home network, video clips and phone
-alerts come next.
+lock and motion sensor, the main door loop, the access log with photos and
+clips, and the resident website. Remote access from outside the home network
+and phone alerts come next.
 
 ## Set up on the Raspberry Pi
 
@@ -90,6 +90,15 @@ check on every change; lock commands signed, time-limited and single-use;
 account pause after repeated wrong passwords; strict Content-Security-Policy;
 enrolment photos processed in memory and never saved; no route can edit or
 delete the access log.
+
+### Photos and clips in the log
+
+Every visit at the door is logged with its date and time and a photo. A visitor
+who is refused (a stranger, a photo or screen attack, or a guest outside their
+allowed time) also gets a 5-second clip. Residents see them in the Log tab.
+
+Photos and clips are encrypted on the device (`data/media/`), are only sent to a
+signed-in resident, and are deleted after 7 days (`media_keep_days`).
 
 ### Demo page
 
