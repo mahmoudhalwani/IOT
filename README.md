@@ -91,6 +91,13 @@ account pause after repeated wrong passwords; strict Content-Security-Policy;
 enrolment photos processed in memory and never saved; no route can edit or
 delete the access log.
 
+### Demo page
+
+A static demo of the pages, with a pretend door that runs in the browser, is
+published from the `gh-pages` branch: https://mahmoudhalwani.github.io/IOT/
+It is for showing the interface only and controls nothing. Rebuild it with
+`python tools/build_demo.py <output dir>`.
+
 ## How a decision is made
 
 1. YuNet finds the largest face; it must be at least 90 px wide and fully in frame.
