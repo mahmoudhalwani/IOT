@@ -1,0 +1,17 @@
+# Starts the door automatically when the Pi boots.
+#   sudo cp scripts/doorbell.service /etc/systemd/system/
+#   sudo systemctl enable --now doorbell
+# Change "pi" and the paths below if your user name or folder is different.
+[Unit]
+Description=Smart Doorbell + Lock
+After=multi-user.target
+
+[Service]
+User=pi
+WorkingDirectory=/home/pi/smart-doorbell
+ExecStart=/home/pi/smart-doorbell/.venv/bin/python -m doorbell run
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

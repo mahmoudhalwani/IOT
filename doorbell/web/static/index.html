@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#14181f">
+<title>Front Door</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<main id="login" hidden>
+  <form id="login-form" class="card narrow" autocomplete="on">
+    <h1>Front Door</h1>
+    <p class="muted">Sign in to control the door.</p>
+    <label>Username <input name="username" autocomplete="username" autocapitalize="none" required></label>
+    <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
+    <label id="totp-row" hidden>6-digit code <input name="totp" inputmode="numeric" autocomplete="one-time-code" maxlength="7"></label>
+    <p class="error" id="login-error" role="alert"></p>
+    <button class="primary" type="submit">Sign in</button>
+  </form>
+</main>
+
+<div id="app" hidden>
+  <header>
+    <strong>Front Door</strong>
+    <span><span id="who" class="muted"></span> <button id="logout" class="link" type="button">Sign out</button></span>
+  </header>
+
+  <main>
+    <section id="tab-door">
+      <div class="card door" id="door-card" data-state="unknown">
+        <p class="muted">The door is</p>
+        <p id="door-state" class="state">…</p>
+        <p id="door-note" class="muted small"></p>
+        <div class="row">
+          <button id="unlock" class="primary" type="button">Unlock</button>
+          <button id="lock" type="button">Lock</button>
+        </div>
+        <p class="error" id="door-error" role="alert"></p>
+      </div>
+    </section>
+
+    <section id="tab-people" hidden>
+      <div id="people-list"></div>
+      <details class="card" id="add-card">
+        <summary>Add a person</summary>
+        <form id="add-form">
+          <label>Name <input name="name" maxlength="40" required></label>
+          <label>Type
+            <select name="role"><option value="resident">Resident</option><option value="guest">Guest</option></select>
+          </label>
+          <label>Photos of their face (1 to 5)
+            <input name="photos" type="file" accept="image/*" multiple required>
+          </label>
+          <fieldset class="access" id="add-access"></fieldset>
+          <label class="check"><input name="consent" type="checkbox" required> This person agreed to have their face enrolled</label>
+          <p class="error" id="add-error" role="alert"></p>
+          <button class="primary" type="submit">Add person</button>
+        </form>
+      </details>
+    </section>
+
+    <section id="tab-log" hidden>
+      <div class="row between"><h2>Access log</h2><button id="log-refresh" type="button">Refresh</button></div>
+      <div id="log-list" class="card flush"></div>
+    </section>
+  </main>
+
+  <nav>
+    <button data-tab="door" class="active" type="button">Door</button>
+    <button data-tab="people" type="button">People</button>
+    <button data-tab="log" type="button">Log</button>
+  </nav>
+</div>
+
+<dialog id="access-dialog">
+  <form method="dialog" id="access-form">
+    <h2 id="access-title">Access time</h2>
+    <fieldset class="access" id="edit-access"></fieldset>
+    <p class="error" id="access-error" role="alert"></p>
+    <div class="row">
+      <button class="primary" type="submit" value="save">Save</button>
+      <button type="button" id="access-cancel">Cancel</button>
+    </div>
+  </form>
+</dialog>
+
+<template id="access-fields">
+  <legend>When may they enter?</legend>
+  <div class="days"></div>
+  <div class="row">
+    <label>From <input type="time" data-f="start"></label>
+    <label>To <input type="time" data-f="end"></label>
+  </div>
+  <div class="row">
+    <label>Access starts <input type="datetime-local" data-f="valid_from"></label>
+    <label>Access expires <input type="datetime-local" data-f="valid_until"></label>
+  </div>
+  <p class="muted small">Leave everything empty for access at any time.</p>
+</template>
+
+<script src="/static/app.js" defer></script>
+</body>
+</html>

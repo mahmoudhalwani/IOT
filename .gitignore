@@ -1,0 +1,4 @@
+data/
+__pycache__/
+.pytest_cache/
+models/face_recognition_sface_2021dec.onnx
